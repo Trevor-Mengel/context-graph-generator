@@ -6,8 +6,8 @@ This prompt populates domain-specific context files describing:
 - Purpose and business value
 - Key entities with all field definitions
 - Status lifecycles with Mermaid diagrams
-- GraphQL operations or REST endpoints
-- Database policies and security rules
+- API operations (GraphQL, REST, tRPC, Server Actions, etc.)
+- Access control and security rules
 - Code locations and dependencies
 - Common patterns and gotchas
 
@@ -18,10 +18,10 @@ This prompt should run **after 01-foundation is complete** and **can run per-dom
 ## Before you start
 
 Ensure you have access to:
-- [ ] Complete `src/` directory
+- [ ] Complete source directory (`src/`, `app/`, `screens/`, or equivalent)
 - [ ] `context/domains/` directory structure
-- [ ] Database schema file (`schema.prisma` or SQL)
-- [ ] Domain source code (components, hooks, queries, services)
+- [ ] Database schema file (`schema.prisma`, SQL, Mongoose models, or equivalent)
+- [ ] Domain source code (components, screens, hooks, queries, services)
 - [ ] `AGENTS.md` (to understand domains listed)
 
 ---
@@ -36,11 +36,11 @@ You are an expert technical documentation AI. Your task is to read actual source
 
 **Gather Source Information:**
 
-1. **Read type definitions** - Find `src/types/[domain]/` or types referenced in schema
-2. **Extract database schema** - All tables/models for this domain
-3. **Find GraphQL/API operations** - Queries, mutations, endpoints
+1. **Read type definitions** - Find types in `src/types/`, co-located types, or types referenced in schema
+2. **Extract database schema** - All tables/models/collections for this domain
+3. **Find API operations** - REST endpoints, GraphQL queries/mutations, tRPC routers, Server Actions, etc.
 4. **Read business logic** - Services, hooks, validation rules
-5. **Identify components** - Major UI components in domain
+5. **Identify components/screens** - Major UI components or screens in domain
 6. **Review tests** - Test cases revealing business rules
 
 ### Step 2: Create context/domains/[domain-name]/CONTEXT.md
@@ -63,11 +63,11 @@ For each domain, populate:
 
 **Business Rules and Validations** - Field-level and entity-level rules extracted from code
 
-**Code Locations** - Types, business logic, queries/mutations, components, hooks, database schema
+**Code Locations** - Types, business logic, API operations, components/screens, hooks, database schema
 
-**GraphQL Operations** or **REST Endpoints** - All operations with inputs/outputs/authorization/code location
+**API Operations** - All endpoints/queries/mutations/actions with inputs/outputs/authorization/code location. Document in the format your project uses (REST, GraphQL, tRPC, Server Actions, etc.)
 
-**Database Policies (RLS)** - If applicable, document actual policies
+**Access Control** - Document actual access control implementation (RLS policies, middleware, auth guards, Firebase Security Rules, etc.)
 
 **Dependencies** - Upstream (domains used), downstream (domains using this)
 
@@ -83,7 +83,7 @@ For each domain, populate:
 
 **Related Context** - Links to architecture, patterns, workflows
 
-Populate with real extracted information. If GraphQL operations don't exist, document REST or internal services instead.
+Populate with real extracted information. Document API operations in whatever format the project uses (REST, GraphQL, tRPC, Server Actions, etc.).
 
 ### Step 3: Process All Domains
 
@@ -104,11 +104,11 @@ For each domain context file, verify:
 - [ ] All entity types documented with actual fields
 - [ ] Database tables all documented
 - [ ] Status lifecycles have Mermaid diagrams
-- [ ] GraphQL/REST operations listed with actual code locations
+- [ ] API operations listed with actual code locations
 - [ ] Code locations reference existing files
 - [ ] Dependencies link to other domains
 - [ ] At least one real code example shown
-- [ ] RLS policies documented with actual SQL
+- [ ] Access control policies documented
 - [ ] No placeholder content remaining
 
 ---

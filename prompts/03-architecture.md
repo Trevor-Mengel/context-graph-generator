@@ -50,7 +50,7 @@ Document:
 
 **Authentication** - Strategy (JWT/sessions/OAuth/MFA), flow, token management, database schema
 
-**Authorization** - Strategy (RLS/middleware/permissions), roles with permissions, actual RLS policies with SQL
+**Authorization** - Strategy (RLS/middleware/permissions/Firebase Rules), roles with permissions, actual access control implementation
 
 **Encryption** - Data in transit (HTTPS/TLS), data at rest, field-level encryption, secrets management
 
@@ -81,7 +81,7 @@ As applicable:
 After completing, verify:
 
 - [ ] SECURITY.md complete with actual auth/authz implementation
-- [ ] All RLS policies documented with SQL
+- [ ] All access control policies documented (RLS, middleware, Firebase Rules, etc.)
 - [ ] INFRASTRUCTURE.md documents real deployment
 - [ ] All environment variables listed
 - [ ] INTEGRATIONS_OVERVIEW.md lists all services

@@ -13,12 +13,12 @@
 
 ## Key Entities
 
-| Field | Type | Description | GraphQL Type |
-|-------|------|-------------|--------------|
-| `[field1]` | `string` | [Description of what this field represents] | `String!` |
-| `[field2]` | `uuid` | [Description of what this field represents] | `UUID!` |
-| `[field3]` | `timestamp` | [Description of what this field represents] | `DateTime!` |
-| `[field4]` | `jsonb` | [Description of what this field represents] | `JSON` |
+| Field | Type | Description | Required | Notes |
+|-------|------|-------------|----------|-------|
+| `[field1]` | `string` | [Description of what this field represents] | Yes | Primary identifier |
+| `[field2]` | `uuid` | [Description of what this field represents] | Yes | Foreign key |
+| `[field3]` | `timestamp` | [Description of what this field represents] | Yes | Auto-generated |
+| `[field4]` | `json` | [Description of what this field represents] | No | Flexible schema |
 
 ---
 
@@ -77,117 +77,104 @@ graph TD
 
 ### Frontend
 
-| Layer | Type | Location(s) | Notes |
-|-------|------|------------|-------|
-| **Types** | TypeScript interfaces | `src/types/[DomainName].ts` | Main domain types |
-| | | `src/types/[DomainName]Query.ts` | GraphQL query types |
-| **Queries** | GraphQL queries | `src/graphql/queries/[DomainName].gql` | Data fetching queries |
-| | | `src/hooks/use[DomainName]Query.ts` | React Query wrapper |
-| **Mutations** | GraphQL mutations | `src/graphql/mutations/[DomainName].gql` | Create/update/delete |
-| | | `src/hooks/use[DomainName]Mutation.ts` | React Query wrapper |
-| **Components** | React components | `src/components/[DomainName]/` | Domain-specific components |
-| **Pages** | Page components | `src/pages/[domain-name]/` | Routed pages |
-| **Hooks** | Custom hooks | `src/hooks/[domain-name]/` | Domain-specific hooks |
-| **Drawer** | Side panel UI | `src/components/drawers/[DomainName]Drawer.tsx` | Details/form drawer |
-
-### Backend
+<!-- Adapt paths for your framework: Next.js uses app/ or pages/, React Native uses screens/, standard React uses src/ -->
 
 | Layer | Type | Location(s) | Notes |
 |-------|------|------------|-------|
-| **Tables** | Database | `supabase/migrations/YYYYMMDD_create_[table_name].sql` | Primary entity table(s) |
-| | | `supabase/migrations/YYYYMMDD_create_[relationship_table].sql` | Junction/relationship tables |
-| **Constraints** | Database | Same migration files | PK, FK, UNIQUE, CHECK |
-| **RLS** | Security | `supabase/migrations/YYYYMMDD_rls_[table_name].sql` | Row-level security policies |
-| **Views** | Database | `supabase/migrations/YYYYMMDD_views_[name].sql` | Materialized views for denormalization |
-| **Indexes** | Database | Same table migrations | BTREE, GIN, BRIN for performance |
-| **Functions** | PL/pgSQL | `supabase/functions/[function_name].sql` | Domain-specific DB functions |
-| **Triggers** | Database | `supabase/migrations/YYYYMMDD_triggers_[name].sql` | Automated enforcement |
-| **GraphQL** | Configuration | `supabase/config.graphql` | Schema definitions |
-| | | `supabase/resolvers/[domain-name].ts` | Custom resolvers |
+| **Types** | TypeScript interfaces | `[src or types]/[DomainName].ts` | Main domain types |
+| **Data Fetching** | Queries / hooks | `[src]/hooks/use[DomainName].ts` | Data fetching (GraphQL, REST, tRPC, etc.) |
+| **Mutations** | Create/update/delete | `[src]/hooks/use[DomainName]Mutation.ts` | Mutation hooks or Server Actions |
+| **Components** | React components | `[src]/components/[DomainName]/` | Domain-specific components |
+| **Pages/Screens** | Route-level components | `app/[domain-name]/page.tsx` · `pages/[domain-name]/` · `screens/[DomainName]/` | Adapt to your router |
+| **Hooks** | Custom hooks | `[src]/hooks/[domain-name]/` | Domain-specific hooks |
+
+### Backend / API
+
+<!-- Adapt to your backend: Supabase, Prisma, Drizzle, Firebase, custom API, etc. -->
+
+| Layer | Type | Location(s) | Notes |
+|-------|------|------------|-------|
+| **Schema / Models** | Database | `prisma/schema.prisma` · `supabase/migrations/` · `src/db/schema.ts` | Adapt to your ORM/database |
+| **Migrations** | Database | `prisma/migrations/` · `supabase/migrations/` · `drizzle/` | Migration files |
+| **API Routes** | Endpoints | `app/api/[domain]/route.ts` · `pages/api/[domain].ts` · `src/routes/` | Server-side endpoints |
+| **Access Control** | Security | RLS policies · middleware · auth guards | Row-level security, middleware, or custom auth |
+| **Functions** | Serverless | `supabase/functions/` · `netlify/functions/` · `aws/lambda/` | Serverless or edge functions |
+| **Resolvers** | API layer | `src/graphql/resolvers/` · `src/trpc/routers/` | If using GraphQL or tRPC |
 
 ---
 
-## GraphQL Operations
+## API Operations
 
-### Example Query
+<!-- Document your actual API operations. Use the section that matches your stack (GraphQL, REST, tRPC, Server Actions). Remove the others. -->
+
+### GraphQL (if applicable)
 
 ```graphql
 query Get[DomainName]ById($id: UUID!) {
-  [entityName]_by_id(id: $id) {
-    id
-    name
-    status
-    created_at
-    updated_at
-    # Include relationships as needed
-    [relationshipField] {
-      id
-      name
-    }
-  }
+  [entityName]_by_id(id: $id) { id, name, status }
 }
-```
 
-### Example Mutation
-
-```graphql
 mutation Create[DomainName]($input: Create[DomainName]Input!) {
-  create[DomainName](input: $input) {
-    id
-    name
-    status
-    created_at
-    # Return relevant fields
-  }
-}
-
-input Create[DomainName]Input {
-  name: String!
-  description: String
-  [customField]: [Type]
+  create[DomainName](input: $input) { id, name, status }
 }
 ```
 
-### Example Subscription (if applicable)
+### REST Endpoints (if applicable)
 
-```graphql
-subscription On[DomainName]Updated($id: UUID!) {
-  [entityName]_updated(id: $id) {
-    id
-    name
-    status
-    updated_at
-  }
-}
+| Method | Endpoint | Purpose | Auth Required |
+|--------|----------|---------|---------------|
+| `GET` | `/api/[domain]` | List all | Yes |
+| `GET` | `/api/[domain]/:id` | Get by ID | Yes |
+| `POST` | `/api/[domain]` | Create | Yes |
+| `PUT` | `/api/[domain]/:id` | Update | Yes |
+| `DELETE` | `/api/[domain]/:id` | Delete | Yes |
+
+### tRPC / Server Actions (if applicable)
+
+```typescript
+// tRPC router
+[domain]Router.query('[domain].getById', { ... })
+[domain]Router.mutation('[domain].create', { ... })
+
+// Next.js Server Actions
+'use server'
+export async function create[DomainName](formData: FormData) { ... }
 ```
 
 ---
 
-## RLS Policies
+## Access Control
 
 ### Access Control Matrix
 
-| Role | Select | Insert | Update | Delete | Notes |
-|------|--------|--------|--------|--------|-------|
+| Role | Read | Create | Update | Delete | Notes |
+|------|------|--------|--------|--------|-------|
 | `authenticated` | Own records + shared | Own records | Own records | Own records | Standard user access |
 | `admin` | All | All | All | All | Full access |
-| `public` | Shared records | ❌ | ❌ | ❌ | Read-only public data |
-| `service_role` | All | All | All | All | Backend/cron access |
+| `public` | Shared records | No | No | No | Read-only public data |
+| `service` | All | All | All | All | Backend/cron access |
 
-### Access Pattern Example
+### Implementation
 
+<!-- Document your actual access control implementation. Adapt to your backend: -->
+
+**Supabase RLS** (if applicable):
 ```sql
--- Users can only access records they own or that are shared with them
-CREATE POLICY "[DomainName]_access_policy" ON [table_name]
-  FOR SELECT
-  USING (
-    auth.uid() = created_by
-    OR EXISTS (
-      SELECT 1 FROM [sharing_table]
-      WHERE record_id = [table_name].id
-      AND user_id = auth.uid()
-    )
-  );
+CREATE POLICY "[DomainName]_access" ON [table_name]
+  FOR SELECT USING (auth.uid() = created_by);
+```
+
+**Middleware** (if applicable):
+```typescript
+// Next.js middleware, Express middleware, or custom auth guards
+export function authorize(req, res, next) { ... }
+```
+
+**Firebase Security Rules** (if applicable):
+```
+match /[collection]/{docId} {
+  allow read: if request.auth != null;
+}
 ```
 
 ---
@@ -244,7 +231,7 @@ CREATE POLICY "[DomainName]_access_policy" ON [table_name]
 - Pagination edge cases (limit=1, offset=0, no results)
 
 ### Mocks Required
-- GraphQL query/mutation responses
+- API responses (GraphQL, REST, tRPC, etc.)
 - Database records with various status states
 - User authentication contexts
 - Related domain data dependencies

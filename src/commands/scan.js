@@ -8,7 +8,10 @@ import ora from "ora";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Scan a codebase and generate skeleton context files
+ * Scan a codebase and generate skeleton context files.
+ * Supports: Next.js (App Router & Pages Router), React Native, Expo,
+ * Supabase, Prisma, Drizzle, Firebase, MongoDB, and standard React apps.
+ *
  * @param {Object} options - Command options
  * @param {string} options.dir - Project root directory
  * @param {string} options.src - Source directory relative to project root
@@ -65,31 +68,93 @@ export async function scan(options) {
       stores: [],
       graphql: [],
       types: [],
+      screens: [],
+      apiRoutes: [],
+      navigation: [],
+      services: [],
+      pages: [],
     };
 
+    // Scan primary source directory (src/)
     if (fs.existsSync(srcPath)) {
       await scanSourceDirectory(srcPath, sourceStructure, src);
     }
 
+    // Scan project root for framework-specific directories
+    await scanFrameworkDirectories(projectRoot, sourceStructure, stack);
+
     spinner.succeed("Source directory scanned");
 
     // ==========================================
-    // Step 3: Scan Supabase Directory
+    // Step 3: Scan Backend / Database Directory
     // ==========================================
     spinner.start();
-    spinner.text = "Scanning Supabase directory...";
+    spinner.text = "Scanning backend and database directories...";
 
-    const supabaseStructure = {
+    const backendStructure = {
       schemas: [],
       edgeFunctions: [],
       migrations: [],
+      prismaModels: [],
+      apiRoutes: [],
+      serverActions: [],
+      backendType: null, // supabase | prisma | drizzle | firebase | custom
     };
 
+    // Scan Supabase directory
     if (fs.existsSync(supabasePath)) {
-      await scanSupabaseDirectory(supabasePath, supabaseStructure);
+      await scanSupabaseDirectory(supabasePath, backendStructure);
+      backendStructure.backendType = "supabase";
     }
 
-    spinner.succeed("Supabase directory scanned");
+    // Scan Prisma schema
+    const prismaSchemaPath = path.join(projectRoot, "prisma", "schema.prisma");
+    if (fs.existsSync(prismaSchemaPath)) {
+      backendStructure.backendType = backendStructure.backendType || "prisma";
+      const prismaContent = fs.readFileSync(prismaSchemaPath, "utf-8");
+      const modelMatches = prismaContent.match(/model\s+(\w+)\s*\{/g);
+      if (modelMatches) {
+        backendStructure.prismaModels = modelMatches.map((m) => m.replace(/model\s+/, "").replace(/\s*\{/, ""));
+      }
+      // Scan Prisma migrations
+      const prismaMigrationsPath = path.join(projectRoot, "prisma", "migrations");
+      if (fs.existsSync(prismaMigrationsPath)) {
+        const entries = fs.readdirSync(prismaMigrationsPath);
+        backendStructure.migrations = entries.filter((e) =>
+          fs.statSync(path.join(prismaMigrationsPath, e)).isDirectory()
+        );
+      }
+    }
+
+    // Scan Drizzle schema
+    const drizzlePaths = [
+      path.join(projectRoot, "drizzle"),
+      path.join(projectRoot, "src", "db"),
+      path.join(projectRoot, "src", "schema"),
+    ];
+    for (const dp of drizzlePaths) {
+      if (fs.existsSync(dp)) {
+        backendStructure.backendType = backendStructure.backendType || "drizzle";
+        break;
+      }
+    }
+
+    // Scan Next.js API routes
+    const apiRoutePaths = [
+      path.join(projectRoot, "app", "api"),
+      path.join(projectRoot, "src", "app", "api"),
+      path.join(projectRoot, "pages", "api"),
+      path.join(projectRoot, "src", "pages", "api"),
+    ];
+    for (const apiPath of apiRoutePaths) {
+      if (fs.existsSync(apiPath)) {
+        const files = await glob(`${apiPath}/**/*.{ts,tsx,js,jsx}`, { nodir: true });
+        backendStructure.apiRoutes = files.map((f) => path.relative(projectRoot, f));
+        break;
+      }
+    }
+
+    spinner.succeed("Backend and database directories scanned");
 
     // ==========================================
     // Step 4: Generate Skeleton Context Files
@@ -124,7 +189,7 @@ export async function scan(options) {
     const systemOverviewContent = generateSystemOverview(
       stack,
       sourceStructure,
-      supabaseStructure
+      backendStructure
     );
     generatedFiles.push({
       path: systemOverviewPath,
@@ -132,14 +197,17 @@ export async function scan(options) {
       content: systemOverviewContent,
     });
 
-    // Generate data model if Supabase schemas exist
-    if (supabaseStructure.schemas.length > 0) {
+    // Generate data model if database schemas/models exist
+    const hasDataModel = backendStructure.schemas.length > 0 ||
+      backendStructure.prismaModels.length > 0 ||
+      stack.database.length > 0;
+    if (hasDataModel) {
       const dataModelPath = path.join(
         contextPath,
         "architecture",
         "DATA_MODEL.md"
       );
-      const dataModelContent = generateDataModel(supabaseStructure);
+      const dataModelContent = generateDataModel(backendStructure, stack);
       generatedFiles.push({
         path: dataModelPath,
         type: "architecture",
@@ -153,7 +221,7 @@ export async function scan(options) {
       "architecture",
       "INFRASTRUCTURE.md"
     );
-    const infrastructureContent = generateInfrastructure(stack, supabaseStructure);
+    const infrastructureContent = generateInfrastructure(stack, backendStructure);
     generatedFiles.push({
       path: infrastructurePath,
       type: "architecture",
@@ -227,7 +295,7 @@ export async function scan(options) {
     printSummary(
       stack,
       sourceStructure,
-      supabaseStructure,
+      backendStructure,
       generatedFiles,
       dryRun
     );
@@ -249,6 +317,7 @@ function detectTechStack(packageJson) {
 
   const stack = {
     framework: null,
+    platform: "web", // web | mobile | universal
     typescript: !!deps.typescript,
     react: deps.react ? deps.react.replace("^", "").replace("~", "") : null,
     buildTool: null,
@@ -258,12 +327,39 @@ function detectTechStack(packageJson) {
     testing: [],
     css: [],
     backend: [],
+    navigation: [],
+    database: [],
   };
 
-  // Framework detection
+  // Framework detection (order matters: most specific first)
+  if (deps["react-native"] && deps.expo) {
+    stack.framework = "Expo";
+    stack.platform = deps["react-native-web"] ? "universal" : "mobile";
+  } else if (deps.expo) {
+    stack.framework = "Expo";
+    stack.platform = deps["react-native-web"] ? "universal" : "mobile";
+  } else if (deps["react-native"]) {
+    stack.framework = "React Native";
+    stack.platform = deps["react-native-web"] ? "universal" : "mobile";
+  } else if (deps.next) {
+    stack.framework = "Next.js";
+    stack.platform = "web";
+  }
+
+  // Build tool (separate from framework)
   if (deps.next) stack.buildTool = "Next.js";
   else if (deps.vite) stack.buildTool = "Vite";
   else if (deps["react-scripts"]) stack.buildTool = "Create React App";
+  else if (deps.expo) stack.buildTool = "Expo CLI";
+  else if (deps["@expo/metro-runtime"] || deps["metro"]) stack.buildTool = "Metro";
+
+  // Navigation (critical for mobile and Next.js)
+  if (deps["@react-navigation/native"]) stack.navigation.push("React Navigation");
+  if (deps["@react-navigation/stack"]) stack.navigation.push("Stack Navigator");
+  if (deps["@react-navigation/bottom-tabs"]) stack.navigation.push("Bottom Tabs");
+  if (deps["@react-navigation/drawer"]) stack.navigation.push("Drawer Navigator");
+  if (deps["expo-router"]) stack.navigation.push("Expo Router");
+  if (deps.next) stack.navigation.push("Next.js File-based Routing");
 
   // State management
   if (deps.zustand) stack.stateManagement.push("Zustand");
@@ -272,6 +368,7 @@ function detectTechStack(packageJson) {
   if (deps.mobx) stack.stateManagement.push("MobX");
   if (deps.jotai) stack.stateManagement.push("Jotai");
   if (deps.recoil) stack.stateManagement.push("Recoil");
+  if (deps["@legendapp/state"]) stack.stateManagement.push("Legend State");
 
   // API layer
   if (deps["@apollo/client"]) stack.apiLayer.push("Apollo Client");
@@ -280,29 +377,61 @@ function detectTechStack(packageJson) {
   if (deps.trpc || deps["@trpc/client"]) stack.apiLayer.push("tRPC");
   if (deps.axios) stack.apiLayer.push("Axios");
   if (deps.graphql) stack.apiLayer.push("GraphQL");
+  if (deps.swr) stack.apiLayer.push("SWR");
 
-  // UI Libraries
+  // UI Libraries (web)
   if (deps["@shadcn/ui"]) stack.uiLibrary.push("shadcn/ui");
   if (deps["@mui/material"]) stack.uiLibrary.push("Material-UI");
   if (deps["@chakra-ui/react"]) stack.uiLibrary.push("Chakra UI");
   if (deps.antd) stack.uiLibrary.push("Ant Design");
+
+  // UI Libraries (mobile)
+  if (deps["react-native-paper"]) stack.uiLibrary.push("React Native Paper");
+  if (deps["native-base"] || deps["@gluestack-ui/themed"]) stack.uiLibrary.push("GlueStack UI");
+  if (deps.tamagui) stack.uiLibrary.push("Tamagui");
+  if (deps["@rneui/themed"]) stack.uiLibrary.push("React Native Elements");
+  if (deps["react-native-elements"]) stack.uiLibrary.push("React Native Elements");
 
   // Testing
   if (deps.vitest) stack.testing.push("Vitest");
   if (deps.jest) stack.testing.push("Jest");
   if (deps["@playwright/test"]) stack.testing.push("Playwright");
   if (deps.cypress) stack.testing.push("Cypress");
+  if (deps["@testing-library/react-native"]) stack.testing.push("React Native Testing Library");
+  if (deps["@testing-library/react"]) stack.testing.push("React Testing Library");
+  if (deps.detox) stack.testing.push("Detox");
+  if (deps.maestro) stack.testing.push("Maestro");
 
-  // CSS
+  // CSS / Styling
   if (deps.tailwindcss) stack.css.push("Tailwind CSS");
+  if (deps.nativewind) stack.css.push("NativeWind");
   if (deps["styled-components"]) stack.css.push("Styled Components");
   if (deps["@emotion/react"]) stack.css.push("Emotion");
   if (deps.sass) stack.css.push("SASS/SCSS");
+  if (deps["react-native-unistyles"]) stack.css.push("Unistyles");
 
-  // Backend
+  // Backend services
   if (deps["@supabase/supabase-js"]) stack.backend.push("Supabase");
-  if (deps.firebase) stack.backend.push("Firebase");
+  if (deps.firebase || deps["@react-native-firebase/app"]) stack.backend.push("Firebase");
   if (deps["@prisma/client"]) stack.backend.push("Prisma");
+  if (deps.express) stack.backend.push("Express");
+  if (deps.fastify) stack.backend.push("Fastify");
+  if (deps.hono) stack.backend.push("Hono");
+  if (deps["@aws-sdk/client-dynamodb"]) stack.backend.push("AWS DynamoDB");
+  if (deps.mongoose) stack.backend.push("Mongoose/MongoDB");
+  if (deps.drizzle) stack.backend.push("Drizzle ORM");
+  if (deps["drizzle-orm"]) stack.backend.push("Drizzle ORM");
+
+  // Database (ORM / direct)
+  if (deps["@prisma/client"]) stack.database.push("Prisma");
+  if (deps["drizzle-orm"]) stack.database.push("Drizzle");
+  if (deps["@supabase/supabase-js"]) stack.database.push("Supabase (PostgreSQL)");
+  if (deps.mongoose) stack.database.push("MongoDB");
+  if (deps.typeorm) stack.database.push("TypeORM");
+  if (deps.knex) stack.database.push("Knex.js");
+  if (deps["expo-sqlite"]) stack.database.push("Expo SQLite");
+  if (deps["@nozbe/watermelondb"]) stack.database.push("WatermelonDB");
+  if (deps.realm) stack.database.push("Realm");
 
   return stack;
 }
@@ -413,6 +542,119 @@ async function scanSourceDirectory(srcPath, structure, srcDir) {
   // Scan for type definitions
   const typeFiles = await glob(`${srcPath}/**/*.types.ts`);
   structure.types = typeFiles.map((f) => path.relative(srcPath, f));
+}
+
+/**
+ * Scan framework-specific directories at project root
+ * Handles Next.js app/ and pages/, React Native screens/, Expo Router app/, etc.
+ */
+async function scanFrameworkDirectories(projectRoot, structure, stack) {
+  // Next.js App Router: root-level app/ directory
+  const appDirPaths = [
+    path.join(projectRoot, "app"),
+    path.join(projectRoot, "src", "app"),
+  ];
+  for (const appDir of appDirPaths) {
+    if (fs.existsSync(appDir)) {
+      const entries = fs.readdirSync(appDir);
+      for (const entry of entries) {
+        const fullPath = path.join(appDir, entry);
+        if (
+          fs.statSync(fullPath).isDirectory() &&
+          !entry.startsWith("_") &&
+          !entry.startsWith(".") &&
+          !entry.startsWith("(") && // route groups
+          entry !== "api" &&
+          entry !== "components" &&
+          entry !== "lib" &&
+          entry !== "utils"
+        ) {
+          if (!structure.features.includes(entry)) {
+            structure.features.push(entry);
+          }
+          structure.pages.push(entry);
+        }
+      }
+      break;
+    }
+  }
+
+  // Next.js Pages Router: root-level pages/ directory (not under src/)
+  const rootPagesPath = path.join(projectRoot, "pages");
+  if (fs.existsSync(rootPagesPath)) {
+    const entries = fs.readdirSync(rootPagesPath);
+    for (const entry of entries) {
+      if (
+        entry !== "_app.tsx" &&
+        entry !== "_app.ts" &&
+        entry !== "_app.js" &&
+        entry !== "_document.tsx" &&
+        entry !== "_document.ts" &&
+        entry !== "_document.js" &&
+        !entry.startsWith("_") &&
+        entry !== "api"
+      ) {
+        const name = entry.replace(/\.(tsx?|jsx?)$/, "");
+        if (
+          !structure.features.includes(name) &&
+          fs.statSync(path.join(rootPagesPath, entry)).isDirectory()
+        ) {
+          structure.features.push(name);
+          structure.pages.push(name);
+        }
+      }
+    }
+  }
+
+  // React Native / Expo: screens/ directory
+  const screensPaths = [
+    path.join(projectRoot, "screens"),
+    path.join(projectRoot, "src", "screens"),
+  ];
+  for (const screensPath of screensPaths) {
+    if (fs.existsSync(screensPath)) {
+      const entries = fs.readdirSync(screensPath);
+      for (const entry of entries) {
+        const fullPath = path.join(screensPath, entry);
+        if (fs.statSync(fullPath).isDirectory()) {
+          structure.screens.push(entry);
+          if (!structure.features.includes(entry)) {
+            structure.features.push(entry);
+          }
+        } else if (entry.match(/\.(tsx?|jsx?)$/)) {
+          const name = entry.replace(/\.(tsx?|jsx?)$/, "").replace(/Screen$/, "");
+          structure.screens.push(name);
+        }
+      }
+      break;
+    }
+  }
+
+  // React Native: navigation/ directory
+  const navPaths = [
+    path.join(projectRoot, "navigation"),
+    path.join(projectRoot, "src", "navigation"),
+  ];
+  for (const navPath of navPaths) {
+    if (fs.existsSync(navPath)) {
+      const files = await glob(`${navPath}/**/*.{tsx,ts,jsx,js}`, { nodir: true });
+      structure.navigation = files.map((f) => path.relative(projectRoot, f));
+      break;
+    }
+  }
+
+  // General: services/ directory
+  const servicesPaths = [
+    path.join(projectRoot, "services"),
+    path.join(projectRoot, "src", "services"),
+  ];
+  for (const servicesPath of servicesPaths) {
+    if (fs.existsSync(servicesPath)) {
+      const files = await glob(`${servicesPath}/**/*.{tsx,ts,jsx,js}`, { nodir: true });
+      structure.services = files.map((f) => path.relative(projectRoot, f));
+      break;
+    }
+  }
 }
 
 /**
@@ -534,11 +776,55 @@ Last updated: ${timestamp}
 /**
  * Generate system overview
  */
-function generateSystemOverview(stack, sourceStructure, supabaseStructure) {
+function generateSystemOverview(stack, sourceStructure, backendStructure) {
   const timestamp = new Date().toISOString();
   const domains = sourceStructure.features
     .map((d) => `- ${capitalizeWords(d)}`)
     .join("\n") || "- (No domains detected)";
+
+  // Build platform-specific directory list
+  let keyDirectories = "";
+  if (stack.platform === "mobile" || stack.platform === "universal") {
+    keyDirectories = `- **screens**: Screen-level components
+- **navigation**: Navigation configuration and navigators
+- **components**: Shared React Native components
+- **hooks**: Custom React hooks
+- **services**: API and business logic services
+- **stores**: State management stores
+- **types**: TypeScript type definitions
+- **utils**: Utility functions`;
+  } else if (stack.framework === "Next.js") {
+    keyDirectories = `- **app/** or **pages/**: Route-level pages and layouts
+- **components**: Shared React components
+- **lib**: Utility functions and shared logic
+- **hooks**: Custom React hooks
+- **stores**: State management stores
+- **types**: TypeScript type definitions
+- **api/**: API routes (server-side endpoints)`;
+  } else {
+    keyDirectories = `- **components**: Shared React components
+- **hooks**: Custom React hooks
+- **stores**: State management stores
+- **types**: TypeScript type definitions
+- **utils**: Utility functions`;
+  }
+
+  // Build database section
+  let databaseSection = "";
+  if (backendStructure.schemas.length > 0 || backendStructure.prismaModels.length > 0) {
+    databaseSection = "Database schema is documented in DATA_MODEL.md";
+  } else if (stack.database.length > 0) {
+    databaseSection = `Using: ${stack.database.join(", ")}. See DATA_MODEL.md for details.`;
+  } else {
+    databaseSection = "Database integration not detected";
+  }
+
+  // Build navigation section for mobile
+  let navigationSection = "";
+  if (stack.navigation.length > 0) {
+    navigationSection = `\n### Navigation
+${stack.navigation.map((n) => `- ${n}`).join("\n")}\n`;
+  }
 
   return `# System Overview
 
@@ -547,10 +833,12 @@ Generated: ${timestamp}
 ## Technology Stack
 
 ### Core Framework
-- **Framework**: ${stack.buildTool || "Not detected"}
+- **Framework**: ${stack.framework || "Not detected"}
+- **Platform**: ${stack.platform}
 - **React**: ${stack.react || "Not detected"}
 - **TypeScript**: ${stack.typescript ? "Yes" : "No"}
-
+- **Build Tool**: ${stack.buildTool || "Not detected"}
+${navigationSection}
 ### State Management
 ${stack.stateManagement.length > 0 ? stack.stateManagement.map((s) => `- ${s}`).join("\n") : "- No state management library detected"}
 
@@ -569,17 +857,16 @@ ${stack.testing.length > 0 ? stack.testing.map((t) => `- ${t}`).join("\n") : "- 
 ### Backend Services
 ${stack.backend.length > 0 ? stack.backend.map((b) => `- ${b}`).join("\n") : "- Backend integration not detected"}
 
+### Database
+${stack.database.length > 0 ? stack.database.map((d) => `- ${d}`).join("\n") : "- Database not detected"}
+
 ## Project Structure
 
 ### Domains
 ${domains}
 
 ### Key Directories
-- **components**: Shared React components
-- **hooks**: Custom React hooks
-- **stores**: State management stores
-- **types**: TypeScript type definitions
-- **utils**: Utility functions
+${keyDirectories}
 
 ## Key Patterns
 
@@ -601,7 +888,7 @@ Document external service integrations.
 Describe auth mechanism and flow.
 
 ### Database
-${supabaseStructure.schemas.length > 0 ? "Supabase schemas are documented in DATA_MODEL.md" : "Database not configured"}
+${databaseSection}
 
 ## Performance Considerations
 
@@ -618,26 +905,36 @@ Last updated: ${timestamp}
 /**
  * Generate data model documentation
  */
-function generateDataModel(supabaseStructure) {
+function generateDataModel(backendStructure, stack) {
   const timestamp = new Date().toISOString();
-  const schemas = supabaseStructure.schemas
-    .map((s) => `- **${capitalizeWords(s)}**: Document schema tables and relationships`)
-    .join("\n") || "- No schemas detected";
 
-  const migrations = supabaseStructure.migrations
+  // Build schemas section based on what was detected
+  let schemasSection = "";
+  if (backendStructure.prismaModels.length > 0) {
+    schemasSection = `### Prisma Models\n\n${backendStructure.prismaModels.map((m) => `- **${m}**: Document model fields and relationships`).join("\n")}`;
+  } else if (backendStructure.schemas.length > 0) {
+    schemasSection = `### Database Schemas\n\n${backendStructure.schemas.map((s) => `- **${capitalizeWords(s)}**: Document schema tables and relationships`).join("\n")}`;
+  } else if (stack.database.length > 0) {
+    schemasSection = `### Database\n\nUsing: ${stack.database.join(", ")}\n\nDocument your data models below.`;
+  }
+
+  const migrations = backendStructure.migrations
     .slice(0, 5)
     .map((m) => `- ${m}`)
     .join("\n") || "- No migrations found";
+
+  // Determine if SQL or NoSQL
+  const isNoSQL = stack.database.some((d) => d.includes("MongoDB") || d.includes("Realm") || d.includes("WatermelonDB"));
 
   return `# Data Model
 
 Generated: ${timestamp}
 
-## Schemas
+## ${isNoSQL ? "Collections & Documents" : "Schemas"}
 
-${schemas}
+${schemasSection}
 
-## Tables & Relationships
+## ${isNoSQL ? "Document Structure & References" : "Tables & Relationships"}
 
 ### Schema Overview
 
@@ -674,9 +971,11 @@ ${migrations}
 
 ## Data Integrity Rules
 
-- Primary keys and uniqueness constraints
+${isNoSQL ? `- Document-level validation rules
+- Reference integrity patterns
+- Index configuration` : `- Primary keys and uniqueness constraints
 - Foreign key relationships
-- Check constraints and validations
+- Check constraints and validations`}
 
 ## Backup & Recovery
 
@@ -693,12 +992,47 @@ Last updated: ${timestamp}
 /**
  * Generate infrastructure documentation
  */
-function generateInfrastructure(stack, supabaseStructure) {
+function generateInfrastructure(stack, backendStructure) {
   const timestamp = new Date().toISOString();
-  const edgeFunctions = supabaseStructure.edgeFunctions
+  const edgeFunctions = backendStructure.edgeFunctions
     .slice(0, 5)
     .map((f) => `- ${f}: Document function purpose`)
-    .join("\n") || "- No edge functions detected";
+    .join("\n") || "- No serverless/edge functions detected";
+
+  // Build deployment section based on platform
+  let deploymentNotes = "";
+  if (stack.platform === "mobile" || stack.platform === "universal") {
+    deploymentNotes = `### Mobile Deployment
+
+- **iOS**: App Store submission process
+- **Android**: Google Play submission process
+- **OTA Updates**: Over-the-air update strategy${stack.framework === "Expo" ? " (EAS Updates)" : ""}
+- **Build System**: ${stack.framework === "Expo" ? "EAS Build" : "Xcode / Gradle"}
+- **Beta Distribution**: TestFlight (iOS), Internal Testing (Android)`;
+  } else if (stack.framework === "Next.js") {
+    deploymentNotes = `### Web Deployment
+
+- **Hosting**: Document hosting platform (Vercel, AWS, self-hosted)
+- **Build Command**: \`next build\`
+- **Static Generation**: Document ISR/SSG strategy if used
+- **Edge Functions**: Document edge runtime usage if any`;
+  } else {
+    deploymentNotes = `### Web Deployment
+
+- **Hosting**: Document hosting platform
+- **Build process**: Document build pipeline
+- **CDN**: Document CDN configuration if used`;
+  }
+
+  // Build API routes section if detected
+  let apiRoutesSection = "";
+  if (backendStructure.apiRoutes.length > 0) {
+    const routes = backendStructure.apiRoutes
+      .slice(0, 10)
+      .map((r) => `- \`${r}\``)
+      .join("\n");
+    apiRoutesSection = `\n## API Routes\n\n${routes}\n`;
+  }
 
   return `# Infrastructure
 
@@ -712,6 +1046,8 @@ Generated: ${timestamp}
 - **Staging**: Staging environment details
 - **Production**: Production deployment info
 
+${deploymentNotes}
+
 ### Build & Release
 
 - Build process documentation
@@ -720,9 +1056,9 @@ Generated: ${timestamp}
 
 ## Backend Services
 
-${stack.backend.map((b) => `### ${b}\n- Configuration\n- Key endpoints\n- Authentication`).join("\n\n")}
-
-## Edge Functions
+${stack.backend.length > 0 ? stack.backend.map((b) => `### ${b}\n- Configuration\n- Key endpoints\n- Authentication`).join("\n\n") : "- No backend services detected"}
+${apiRoutesSection}
+## Serverless / Edge Functions
 
 ${edgeFunctions}
 
@@ -1018,6 +1354,28 @@ Last updated: ${timestamp}
 function generateAgentsMD(stack, sourceStructure, fileCount) {
   const timestamp = new Date().toISOString();
 
+  // Build component organization note based on platform
+  let componentOrgNote = "";
+  if (stack.platform === "mobile" || stack.platform === "universal") {
+    componentOrgNote = "Screens in `screens/`, shared components in `components/`, navigation in `navigation/`";
+  } else if (stack.framework === "Next.js") {
+    componentOrgNote = "Pages/routes in `app/` or `pages/`, shared components in `components/`";
+  } else {
+    componentOrgNote = "Shared components in `src/components/`, domain-specific in domain folders";
+  }
+
+  // Navigation section for mobile
+  let navigationSection = "";
+  if (stack.navigation.length > 0) {
+    navigationSection = `\n**Navigation**\n${stack.navigation.map((n) => `- ${n}`).join("\n")}\n`;
+  }
+
+  // Database section
+  let databaseSection = "";
+  if (stack.database.length > 0) {
+    databaseSection = `\n**Database**\n${stack.database.map((d) => `- ${d}`).join("\n")}\n`;
+  }
+
   return `# Agent Context Configuration
 
 Generated: ${timestamp}
@@ -1038,11 +1396,13 @@ This context graph enables Claude, Cursor, and other AI agents to understand you
 
 ### Technology Stack
 
-**Framework & Build**
+**Framework & Platform**
+- Framework: ${stack.framework || "Not detected"}
+- Platform: ${stack.platform}
 - Build Tool: ${stack.buildTool || "Not detected"}
 - React: ${stack.react || "Not detected"}
 - TypeScript: ${stack.typescript ? "Yes" : "No"}
-
+${navigationSection}
 **State Management**
 ${stack.stateManagement.length > 0 ? stack.stateManagement.map((s) => `- ${s}`).join("\n") : "- Not configured"}
 
@@ -1052,14 +1412,14 @@ ${stack.apiLayer.length > 0 ? stack.apiLayer.map((a) => `- ${a}`).join("\n") : "
 **UI & Styling**
 ${stack.uiLibrary.length > 0 ? stack.uiLibrary.map((u) => `- ${u}`).join("\n") : "- Component library not configured"}
 
-${stack.css.length > 0 ? "\n**CSS**\n" + stack.css.map((c) => `- ${c}`).join("\n") : ""}
+${stack.css.length > 0 ? "\n**CSS / Styling**\n" + stack.css.map((c) => `- ${c}`).join("\n") : ""}
 
 **Testing**
 ${stack.testing.length > 0 ? stack.testing.map((t) => `- ${t}`).join("\n") : "- Testing framework not configured"}
 
 **Backend**
 ${stack.backend.length > 0 ? stack.backend.map((b) => `- ${b}`).join("\n") : "- Backend not configured"}
-
+${databaseSection}
 ### Project Domains
 
 The following feature domains have been identified:
@@ -1071,10 +1431,10 @@ ${sourceStructure.features.length > 0
 
 ### Key Patterns to Know
 
-1. **Component Organization**: Shared components in \`src/components/\`, domain-specific in domain folders
+1. **Component Organization**: ${componentOrgNote}
 2. **State Pattern**: ${stack.stateManagement.length > 0 ? stack.stateManagement[0] : "Custom implementation"}
 3. **API Communication**: ${stack.apiLayer.length > 0 ? stack.apiLayer[0] : "Fetch/Axios"}
-4. **Styling**: ${stack.css.length > 0 ? stack.css[0] : "CSS modules"}
+4. **Styling**: ${stack.css.length > 0 ? stack.css[0] : "CSS modules or platform default"}
 
 ### Before Making Changes
 
@@ -1101,17 +1461,24 @@ Generated: ${timestamp}
 /**
  * Print summary of scan results
  */
-function printSummary(stack, sourceStructure, supabaseStructure, generatedFiles, dryRun) {
+function printSummary(stack, sourceStructure, backendStructure, generatedFiles, dryRun) {
   console.log("\n");
   console.log(chalk.bold("========================================"));
   console.log(chalk.bold.cyan("  Context Graph Generator Scan Summary"));
   console.log(chalk.bold("========================================"));
 
   console.log("\n" + chalk.bold("Technology Stack:"));
-  console.log(`  Framework: ${chalk.cyan(stack.buildTool || "Not detected")}`);
+  console.log(`  Framework: ${chalk.cyan(stack.framework || "Not detected")}`);
+  console.log(`  Platform: ${chalk.cyan(stack.platform)}`);
+  console.log(`  Build Tool: ${chalk.cyan(stack.buildTool || "Not detected")}`);
   console.log(`  React: ${chalk.cyan(stack.react || "Not detected")}`);
   console.log(`  TypeScript: ${chalk.cyan(stack.typescript ? "Yes" : "No")}`);
 
+  if (stack.navigation.length > 0) {
+    console.log(
+      `  Navigation: ${chalk.cyan(stack.navigation.join(", "))}`
+    );
+  }
   if (stack.stateManagement.length > 0) {
     console.log(
       `  State Management: ${chalk.cyan(stack.stateManagement.join(", "))}`
@@ -1125,6 +1492,9 @@ function printSummary(stack, sourceStructure, supabaseStructure, generatedFiles,
   }
   if (stack.backend.length > 0) {
     console.log(`  Backend: ${chalk.cyan(stack.backend.join(", "))}`);
+  }
+  if (stack.database.length > 0) {
+    console.log(`  Database: ${chalk.cyan(stack.database.join(", "))}`);
   }
 
   console.log("\n" + chalk.bold("Source Structure:"));
@@ -1140,20 +1510,48 @@ function printSummary(stack, sourceStructure, supabaseStructure, generatedFiles,
   );
   console.log(`  Hooks: ${chalk.cyan(sourceStructure.hooks.length)} found`);
   console.log(`  Stores: ${chalk.cyan(sourceStructure.stores.length)} found`);
+  if (sourceStructure.screens.length > 0) {
+    console.log(`  Screens: ${chalk.cyan(sourceStructure.screens.length)} found`);
+  }
+  if (sourceStructure.apiRoutes.length > 0) {
+    console.log(`  API Routes: ${chalk.cyan(sourceStructure.apiRoutes.length)} found`);
+  }
+  if (sourceStructure.navigation.length > 0) {
+    console.log(`  Navigation Files: ${chalk.cyan(sourceStructure.navigation.length)} found`);
+  }
   console.log(
-    `  GraphQL: ${chalk.cyan(supabaseStructure.schemas.length)} files found`
+    `  GraphQL Files: ${chalk.cyan(sourceStructure.graphql.length)} found`
   );
 
-  console.log("\n" + chalk.bold("Supabase Structure:"));
-  console.log(
-    `  Schemas: ${chalk.cyan(supabaseStructure.schemas.length)} found`
-  );
-  console.log(
-    `  Edge Functions: ${chalk.cyan(supabaseStructure.edgeFunctions.length)} found`
-  );
-  console.log(
-    `  Migrations: ${chalk.cyan(supabaseStructure.migrations.length)} found`
-  );
+  console.log("\n" + chalk.bold("Backend Structure:"));
+  if (backendStructure.backendType) {
+    console.log(`  Type: ${chalk.cyan(backendStructure.backendType)}`);
+  }
+  if (backendStructure.schemas.length > 0) {
+    console.log(
+      `  Schemas: ${chalk.cyan(backendStructure.schemas.length)} found`
+    );
+  }
+  if (backendStructure.prismaModels.length > 0) {
+    console.log(
+      `  Prisma Models: ${chalk.cyan(backendStructure.prismaModels.length)} found`
+    );
+  }
+  if (backendStructure.edgeFunctions.length > 0) {
+    console.log(
+      `  Edge/Serverless Functions: ${chalk.cyan(backendStructure.edgeFunctions.length)} found`
+    );
+  }
+  if (backendStructure.apiRoutes.length > 0) {
+    console.log(
+      `  API Routes: ${chalk.cyan(backendStructure.apiRoutes.length)} found`
+    );
+  }
+  if (backendStructure.migrations.length > 0) {
+    console.log(
+      `  Migrations: ${chalk.cyan(backendStructure.migrations.length)} found`
+    );
+  }
 
   console.log("\n" + chalk.bold("Generated Files:"));
   console.log(`  Total files: ${chalk.cyan(generatedFiles.length)}`);

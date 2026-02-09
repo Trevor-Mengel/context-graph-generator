@@ -392,7 +392,7 @@ Closes #[issue-number]
 - [ ] Design/mockups reviewed
 - [ ] Related domains/patterns documented
 - [ ] Database schema changes identified (if needed)
-- [ ] GraphQL schema changes identified (if needed)
+- [ ] API changes identified (REST endpoints, GraphQL schema, tRPC routers, etc.)
 - [ ] Breaking changes identified (if any)
 
 ### Implementation Checklist
@@ -575,16 +575,16 @@ Closes #[issue-number]
 **Steps:**
 1. Create feature branch: `git checkout -b feat/user-permissions`
 2. Update database schema
-   - Create migration: `supabase migration new add_permissions_table`
+   - Create migration (e.g., `npx prisma migrate dev`, `supabase migration new`, or equivalent)
    - Write schema changes
-   - Test migration: `npm run migrate`
-3. Update GraphQL
-   - Add types and resolvers
-   - Update RLS policies
+   - Test migration locally
+3. Update API layer
+   - Add types, endpoints, or resolvers
+   - Update access control (RLS policies, middleware, auth guards)
 4. Update frontend
-   - Add React components
-   - Add hooks and queries
-   - Add routes
+   - Add React components / screens
+   - Add hooks and data fetching
+   - Add routes or navigation
 5. Comprehensive testing
    - Unit tests for utils
    - Component tests

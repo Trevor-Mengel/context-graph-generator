@@ -15,12 +15,13 @@ This is the root context file for AI agents working on this project. It provides
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | [e.g., React 18 + TypeScript + Vite] |
-| Styling | [e.g., Tailwind CSS + shadcn/ui] |
-| State | [e.g., Apollo Client + Zustand] |
-| Backend | [e.g., Supabase (PostgreSQL + Auth + Realtime + Storage)] |
-| API | [e.g., GraphQL via pg_graphql] |
-| Edge Functions | [e.g., Deno (Supabase Edge Functions)] |
+| Framework | [e.g., Next.js / React Native / Expo / Vite + React] |
+| Platform | [web / mobile / universal] |
+| Styling | [e.g., Tailwind CSS + shadcn/ui / NativeWind / StyleSheet] |
+| State | [e.g., Zustand / Redux / React Query] |
+| Backend | [e.g., Supabase / Firebase / Prisma + PostgreSQL / custom API] |
+| API | [e.g., REST / GraphQL / tRPC / Server Actions] |
+| Navigation | [e.g., Next.js file-based / React Navigation / Expo Router] |
 
 ## Key Architectural Patterns
 
@@ -43,19 +44,23 @@ This is the root context file for AI agents working on this project. It provides
 
 ## File Locations
 
+<!-- Adapt this tree to your actual project structure -->
+
 ```
 /
-├── src/                    # Frontend code
+├── app/                    # Next.js App Router / Expo Router routes
+├── pages/                  # Next.js Pages Router (alternative to app/)
+├── screens/                # React Native screen components
+├── src/                    # Source code (may be root-level in some setups)
 │   ├── components/         # Shared components
-│   ├── features/           # Domain features
-│   ├── pages/              # Route components
-│   ├── stores/             # State stores
-│   ├── gql/                # Generated GraphQL (if applicable)
-│   └── hooks/              # Custom hooks
-├── supabase/               # Backend (if using Supabase)
-│   ├── schemas/            # SQL schema files
-│   ├── functions/          # Edge Functions
-│   └── migrations/         # Database migrations
+│   ├── features/           # Domain features or modules
+│   ├── hooks/              # Custom hooks
+│   ├── stores/             # State management stores
+│   ├── services/           # API clients, business logic
+│   ├── navigation/         # Navigation configuration (mobile)
+│   └── types/              # TypeScript type definitions
+├── prisma/                 # Prisma schema & migrations (if using Prisma)
+├── supabase/               # Supabase config & migrations (if using Supabase)
 ├── context/                # AI context files
 │   ├── architecture/       # System design docs
 │   ├── domains/            # Domain context files
@@ -93,9 +98,10 @@ npm run typecheck        # Type check
 ### Security
 - Validate inputs with Zod (or your validation library)
 - Sanitize user-generated content
-- Use RLS for database access (if applicable)
+- Use appropriate access control (RLS, middleware, auth guards)
 - Handle auth errors gracefully
 - Never expose sensitive data client-side
+- Use environment variable prefixes (`NEXT_PUBLIC_`, `EXPO_PUBLIC_`) for client-exposed vars
 
 ### Component Creation
 - Use `React.forwardRef` for reusable components
@@ -105,16 +111,18 @@ npm run typecheck        # Type check
 - Use barrel exports (`index.ts`)
 
 ### Styling
-- Utility-first CSS (Tailwind)
-- `cn()` for conditional classes
-- Component library (shadcn/ui) as base
-- Theme colors via CSS variables
+<!-- Adapt to your styling approach -->
+- [e.g., Utility-first CSS (Tailwind/NativeWind)]
+- [e.g., `cn()` for conditional classes]
+- [e.g., Component library as base]
+- [e.g., Theme via CSS variables / theme provider]
 
 ### Data Fetching
-- Use lazy queries for conditional fetching
 - Handle loading states
 - Implement error handling
 - Memoize computed values
+- [e.g., Use React Query / SWR / Apollo for caching]
+- [e.g., Use Server Components for server-side data (Next.js)]
 
 ### Form Handling
 - React Hook Form + Zod validation
@@ -131,7 +139,7 @@ npm run typecheck        # Type check
 | Utilities | `camelCase` | `formatDate` |
 | Directories | `kebab-case` | `user-profile` |
 | DB fields | `snake_case` | `created_at` |
-| Env vars | `SCREAMING_SNAKE_CASE` | `SUPABASE_URL` |
+| Env vars | `SCREAMING_SNAKE_CASE` | `DATABASE_URL` |
 | TS interfaces/types | `PascalCase` | `UserProfile` |
 | CSS classes | `kebab-case` | `user-avatar` |
 

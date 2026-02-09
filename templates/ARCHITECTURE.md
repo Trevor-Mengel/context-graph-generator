@@ -36,6 +36,8 @@
 
 ### System Diagram
 
+<!-- Adapt this diagram for your architecture. Below is a generic template. -->
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        CLIENT LAYER                               │
@@ -47,16 +49,9 @@
             └──────────────────────┼──────────────────────┘
                                    │ HTTPS
             ┌──────────────────────▼──────────────────────┐
-            │      API GATEWAY / LOAD BALANCER            │
-            │  (Rate limiting, request routing)           │
-            └──────────────────────┬──────────────────────┘
-                                   │
-            ┌──────────────────────▼──────────────────────┐
-            │        GRAPHQL API LAYER                    │
-            │  ┌──────────────────────────────────────┐   │
-            │  │  GraphQL Server / Apollo Server      │   │
-            │  │  (Query, Mutation, Subscription)     │   │
-            │  └──────────────────────────────────────┘   │
+            │           API LAYER                         │
+            │  [REST / GraphQL / tRPC / Server Actions]   │
+            │  [API Routes / Edge Functions / Serverless]  │
             └──────────────────────┬──────────────────────┘
                                    │
       ┌────────────────────────────┼────────────────────────────┐
@@ -64,9 +59,9 @@
       ▼                            ▼                            ▼
 ┌──────────────┐       ┌──────────────────┐       ┌──────────────────┐
 │ DATABASE     │       │ CACHE LAYER      │       │ EXTERNAL SERVICES│
-│              │       │ (Redis/Memcached)│       │                  │
-│ Supabase     │       │                  │       │ [Service1]       │
-│ PostgreSQL   │       │                  │       │ [Service2]       │
+│ [PostgreSQL /│       │ (Redis/Memcached/│       │                  │
+│  MongoDB /   │       │  CDN)            │       │ [Service1]       │
+│  SQLite]     │       │                  │       │ [Service2]       │
 └──────────────┘       └──────────────────┘       └──────────────────┘
 
 ```
@@ -127,57 +122,68 @@
 
 ## Code Locations
 
-### Backend
+### Backend / API
+
+<!-- Adapt to your stack: Supabase, Prisma, Firebase, custom Node server, Next.js API routes, etc. -->
 
 | Component | Type | Location(s) | Notes |
 |-----------|------|------------|-------|
-| **API Server** | Application | `src/server/` | Main Node/GraphQL server |
-| **Database** | Configuration | `supabase/migrations/` | Schema migrations |
-| | | `supabase/functions/` | Edge functions |
-| **Authentication** | Module | `src/auth/` | Auth strategies, JWT handling |
-| **Integrations** | Module | `src/integrations/[service]/` | External service clients |
-| **Workers** | Services | `src/workers/` | Background jobs, queues |
+| **API Layer** | Endpoints | `app/api/` · `pages/api/` · `src/server/` | REST, GraphQL, tRPC, or Server Actions |
+| **Database** | Schema/Migrations | `prisma/` · `supabase/migrations/` · `drizzle/` · `src/db/` | Adapt to your ORM/database |
+| **Authentication** | Module | `src/auth/` · `middleware.ts` | Auth strategies, JWT, session handling |
+| **Integrations** | Module | `src/integrations/[service]/` · `src/services/` | External service clients |
+| **Workers** | Services | `src/workers/` · `src/jobs/` | Background jobs, queues |
 | **Types** | TypeScript | `src/types/` | Shared type definitions |
-| **Utils** | Utilities | `src/utils/` | Helper functions |
-| **Middleware** | Middleware | `src/middleware/` | Request/response processing |
+| **Middleware** | Middleware | `middleware.ts` · `src/middleware/` | Request/response processing |
 
-### Frontend
+### Frontend / Client
+
+<!-- Adapt paths: Next.js uses app/ or pages/, React Native uses screens/, standard React uses src/ -->
 
 | Component | Type | Location(s) | Notes |
 |-----------|------|------------|-------|
-| **Pages** | Components | `src/pages/` | Route-level components |
-| **Components** | Components | `src/components/` | Reusable UI components |
-| **Hooks** | Custom Hooks | `src/hooks/` | Custom React hooks |
-| **Context** | State | `src/context/` | React Context providers |
-| **Services** | Client | `src/services/` | API/integration clients |
+| **Pages/Screens** | Route components | `app/` · `pages/` · `screens/` · `src/pages/` | Adapt to your router/framework |
+| **Components** | UI components | `src/components/` · `components/` | Reusable UI components |
+| **Hooks** | Custom Hooks | `src/hooks/` · `hooks/` | Custom React hooks |
+| **Navigation** | Routing | `src/navigation/` · `app/layout.tsx` | React Navigation, file-based routing |
+| **State** | State management | `src/stores/` · `src/context/` | Stores or Context providers |
+| **Services** | Client | `src/services/` · `src/api/` | API/integration clients |
 | **Types** | TypeScript | `src/types/` | Frontend type definitions |
-| **Utils** | Utilities | `src/utils/` | Helper functions |
 
 ---
 
 ## Database Schema
 
-### Core Tables
+### Core Models / Tables
 
+<!-- Use the format that matches your stack: SQL, Prisma, Mongoose, etc. -->
+
+**SQL (PostgreSQL / Supabase / Drizzle):**
 ```sql
--- Example table structure
 CREATE TABLE [table_name] (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   [field1] VARCHAR(255) NOT NULL,
-  [field2] TIMESTAMP DEFAULT now(),
-  [field3] JSONB,
   created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now(),
-  created_by UUID REFERENCES auth.users(id),
-
-  -- Constraints
-  UNIQUE([field1]),
-  FOREIGN KEY([relation_id]) REFERENCES [related_table](id)
+  updated_at TIMESTAMP DEFAULT now()
 );
+```
 
--- Indexes for performance
-CREATE INDEX idx_[table_name]_[field1] ON [table_name]([field1]);
-CREATE INDEX idx_[table_name]_created_at ON [table_name](created_at DESC);
+**Prisma:**
+```prisma
+model [ModelName] {
+  id        String   @id @default(cuid())
+  [field1]  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+
+**Mongoose / MongoDB:**
+```typescript
+const [ModelName]Schema = new Schema({
+  [field1]: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
 ```
 
 ### Relationships
@@ -203,9 +209,9 @@ erDiagram
 
 | Error | Status | Cause | Resolution | Prevention |
 |-------|--------|-------|-----------|-----------|
-| `[ERROR_CODE]` | 400 | [Invalid input] | Validate input format | Use GraphQL schema validation |
+| `[ERROR_CODE]` | 400 | [Invalid input] | Validate input format | Use schema validation (Zod, Yup, etc.) |
 | `[ERROR_CODE]` | 401 | [Auth required] | Provide valid token | Check token expiration |
-| `[ERROR_CODE]` | 403 | [Permission denied] | Check RLS policies | Verify user role |
+| `[ERROR_CODE]` | 403 | [Permission denied] | Check access policies | Verify user role and permissions |
 | `[ERROR_CODE]` | 429 | [Rate limit] | Exponential backoff | Implement request batching |
 | `[ERROR_CODE]` | 500 | [Server error] | Retry after 30s | Check error logs |
 | `[ERROR_CODE]` | 503 | [Service unavailable] | Use fallback | Implement circuit breaker |

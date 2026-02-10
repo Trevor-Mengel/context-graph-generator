@@ -1,6 +1,6 @@
 # context-graph-generator
 
-## Give Your AI Coding Agents a Map of Your Codebase
+## Give Your AI Coding Agents a Universal Map of Your Codebase
 
 context-graph-generator is a CLI tool + prompt library that generates an AI-agent-friendly "context graph" for modern TypeScript/React codebases. It supports **Next.js**, **React Native**, **Expo**, standard React (Vite/CRA), and works with any backend (Supabase, Prisma, Firebase, MongoDB, custom APIs, and more). It creates structured documentation that helps Claude Code, Cursor, Windsurf, and other AI coding agents understand and work autonomously on your project with exceptional depth and accuracy.
 
